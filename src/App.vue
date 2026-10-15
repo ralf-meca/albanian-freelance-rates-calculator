@@ -4,7 +4,7 @@ import { calculateWage } from './api.js'
 
 const mode = ref('net_to_gross')
 const amount = ref('')
-const hasDeclaration = ref(false)
+const hasDeclaration = ref(true)
 const result = ref(null)
 const error = ref('')
 const loading = ref(false)
@@ -93,6 +93,7 @@ const isNetToGross = computed(() => mode.value === 'net_to_gross')
     <label class="check">
       <input type="checkbox" v-model="hasDeclaration" />
       Has filled the personal status declaration
+      <small>(unlocks the tax-free allowance; untick if this is a second job)</small>
     </label>
 
     <p v-if="error" class="error">{{ error }}</p>
