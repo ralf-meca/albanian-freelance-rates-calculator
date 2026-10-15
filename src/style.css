@@ -36,7 +36,7 @@ h1 { font-size: 1.6rem; margin: 0 0 4px; }
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;

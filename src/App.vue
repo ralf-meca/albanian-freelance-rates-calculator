@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { calculateWage } from './api.js'
+import { calculateWage, grossFromEmployerCost } from './api.js'
 
 const mode = ref('net_to_gross')
 const amount = ref('')
@@ -38,7 +38,9 @@ async function run() {
   controller = new AbortController()
   loading.value = true
   try {
-    result.value = await calculateWage(wage, mode.value, hasDeclaration.value, controller.signal)
+    result.value = isDayRate.value
+      ? await grossFromEmployerCost((wage * billableDays.value) / 12, hasDeclaration.value, controller.signal)
+      : await calculateWage(wage, mode.value, hasDeclaration.value, controller.signal)
   } catch (e) {
     if (e.name !== 'AbortError') {
       error.value = e.message
@@ -56,7 +58,16 @@ watch(amount, () => {
 })
 watch([mode, hasDeclaration], run)
 
-const isNetToGross = computed(() => mode.value === 'net_to_gross')
+const isDayRate = computed(() => mode.value === 'day_rate')
+const showDays = computed(() => billByDay.value || isDayRate.value)
+const inputLabel = computed(
+  () =>
+    ({
+      net_to_gross: 'Net amount you want to receive',
+      gross_to_net: 'Gross amount',
+      day_rate: 'Your day rate',
+    })[mode.value],
+)
 
 // Day-rate billing: the employer cost covers 12 paid months including leave and
 // public holidays, but a freelancer only bills the days actually worked.
@@ -67,7 +78,16 @@ const holidays = ref(13)
 
 const offDaysPerYear = computed(() => (Number(daysOff.value) || 0) + (Number(holidays.value) || 0))
 const billableDays = computed(() => Math.max(WORKDAYS_PER_YEAR - offDaysPerYear.value, 1))
-const dayRate = computed(() => (result.value ? (result.value.employerCost * 12) / billableDays.value : 0))
+const dayRate = computed(() =>
+  isDayRate.value ? parsedAmount.value : result.value ? (result.value.employerCost * 12) / billableDays.value : 0,
+)
+
+// in day-rate mode the billable days change the salary, so recalculate
+watch([daysOff, holidays], () => {
+  if (!isDayRate.value) return
+  clearTimeout(timer)
+  timer = setTimeout(run, 400)
+})
 </script>
 
 <template>
@@ -78,23 +98,27 @@ const dayRate = computed(() => (result.value ? (result.value.employerCost * 12) 
     </header>
 
     <div class="tabs" role="tablist">
-      <button role="tab" :aria-selected="isNetToGross" :class="{ active: isNetToGross }" @click="mode = 'net_to_gross'">
-        Net → Gross
-      </button>
-      <button role="tab" :aria-selected="!isNetToGross" :class="{ active: !isNetToGross }" @click="mode = 'gross_to_net'">
-        Gross → Net
+      <button
+        v-for="(label, key) in { net_to_gross: 'Net → Gross', gross_to_net: 'Gross → Net', day_rate: 'Day rate → Salary' }"
+        :key="key"
+        role="tab"
+        :aria-selected="mode === key"
+        :class="{ active: mode === key }"
+        @click="mode = key"
+      >
+        {{ label }}
       </button>
     </div>
 
     <label class="field">
-      <span>{{ isNetToGross ? 'Net amount you want to receive' : 'Gross amount' }}</span>
+      <span>{{ inputLabel }}</span>
       <div class="input">
         <input
           :value="amount"
           @input="onInput"
           inputmode="decimal"
           autocomplete="off"
-          placeholder="e.g. 100,000"
+          ":placeholder="isDayRate ? 'e.g. 8,000' : 'e.g. 100,000'"
           autofocus
         />
         <span class="cur">ALL</span>
@@ -107,12 +131,12 @@ const dayRate = computed(() => (result.value ? (result.value.employerCost * 12) 
       <small>(unlocks the tax-free allowance; untick if this is a second job)</small>
     </label>
 
-    <label class="check switch">
+    <label v-if="!isDayRate" class="check switch">
       <input type="checkbox" role="switch" v-model="billByDay" />
       Bill by day
     </label>
 
-    <div v-if="billByDay" class="days">
+    <div v-if="showDays" class="days">
       <label>
         <span>Days off per year</span>
         <input type="number" min="0" max="200" v-model.number="daysOff" />
@@ -144,15 +168,17 @@ const dayRate = computed(() => (result.value ? (result.value.employerCost * 12) 
         </div>
       </div>
 
-      <div v-if="billByDay" class="dayrate">
+      <div v-if="showDays" class="dayrate">
         <div class="big">
-          <span>Day rate</span>
-          <strong>{{ fmt(Math.round(dayRate)) }} ALL</strong>
+          <span>{{ isDayRate ? 'As an employee' : 'Day rate' }}</span>
+          <strong v-if="isDayRate">{{ fmt(result.gross) }} gross · {{ fmt(result.net) }} net</strong>
+          <strong v-else>{{ fmt(Math.round(dayRate)) }} ALL</strong>
         </div>
         <ul>
           <li><b>{{ fmt(offDaysPerYear / 12) }}</b> unpaid off days / month</li>
           <li><b>{{ fmt(billableDays) }}</b> billable days / year ({{ fmt(billableDays / 12) }} / month)</li>
-          <li>{{ fmt(result.employerCost) }} × 12 ÷ {{ fmt(billableDays) }}</li>
+          <li v-if="isDayRate">{{ fmt(dayRate) }} × {{ fmt(billableDays) }} ÷ 12 = {{ fmt(Math.round((dayRate * billableDays) / 12)) }} employer cost / month</li>
+          <li v-else>{{ fmt(result.employerCost) }} × 12 ÷ {{ fmt(billableDays) }}</li>
         </ul>
       </div>
 
