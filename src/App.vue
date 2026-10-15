@@ -57,6 +57,17 @@ watch(amount, () => {
 watch([mode, hasDeclaration], run)
 
 const isNetToGross = computed(() => mode.value === 'net_to_gross')
+
+// Day-rate billing: the employer cost covers 12 paid months including leave and
+// public holidays, but a freelancer only bills the days actually worked.
+const WORKDAYS_PER_YEAR = 260 // 52 weeks × 5 days
+const billByDay = ref(false)
+const daysOff = ref(20)
+const holidays = ref(13)
+
+const offDaysPerYear = computed(() => (Number(daysOff.value) || 0) + (Number(holidays.value) || 0))
+const billableDays = computed(() => Math.max(WORKDAYS_PER_YEAR - offDaysPerYear.value, 1))
+const dayRate = computed(() => (result.value ? (result.value.employerCost * 12) / billableDays.value : 0))
 </script>
 
 <template>
@@ -96,6 +107,22 @@ const isNetToGross = computed(() => mode.value === 'net_to_gross')
       <small>(unlocks the tax-free allowance; untick if this is a second job)</small>
     </label>
 
+    <label class="check switch">
+      <input type="checkbox" role="switch" v-model="billByDay" />
+      Bill by day
+    </label>
+
+    <div v-if="billByDay" class="days">
+      <label>
+        <span>Days off per year</span>
+        <input type="number" min="0" max="200" v-model.number="daysOff" />
+      </label>
+      <label>
+        <span>Public holidays per year</span>
+        <input type="number" min="0" max="60" v-model.number="holidays" />
+      </label>
+    </div>
+
     <p v-if="error" class="error">{{ error }}</p>
     <p v-else-if="result?.lessThanMin" class="warn">
       {{ result.lessThanMinMsg || 'Amount is below the minimum wage.' }}
@@ -115,6 +142,18 @@ const isNetToGross = computed(() => mode.value === 'net_to_gross')
           <span>Employer cost</span>
           <strong>{{ fmt(result.employerCost) }}</strong>
         </div>
+      </div>
+
+      <div v-if="billByDay" class="dayrate">
+        <div class="big">
+          <span>Day rate</span>
+          <strong>{{ fmt(Math.round(dayRate)) }} ALL</strong>
+        </div>
+        <ul>
+          <li><b>{{ fmt(offDaysPerYear / 12) }}</b> unpaid off days / month</li>
+          <li><b>{{ fmt(billableDays) }}</b> billable days / year ({{ fmt(billableDays / 12) }} / month)</li>
+          <li>{{ fmt(result.employerCost) }} × 12 ÷ {{ fmt(billableDays) }}</li>
+        </ul>
       </div>
 
       <table>
